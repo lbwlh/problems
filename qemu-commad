@@ -93,3 +93,6 @@ will start the guest.
 -device virtconsole,chardev=virtio-console-1-1,name=virtio.console.1.1,bus=virt-console-1.0 \
 -device virtio-rng-pci
 
+6. some usefull commands:
+/usr/libexec/qemu-kvm -device ide-hd,?
+/usr/libexec/qemu-kvm -M ?
