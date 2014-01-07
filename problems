@@ -1,0 +1,583 @@
+Q1: How to save the info output from stdout to a not exsiting file？
+   eg:debug info
+A: LIBVIRT_DEBUG=1 virsh migrate --live mig7 qemu+ssh://$HOSTIP/system > log.txt 2>&1
+   explain: cmd > file 2>&1 把 stdout 和 stderr 一起重定向到 file 文件中；
+
+Q2: How to configure a NIC IP（etc: eth0) to static？
+A: 1.edit /etc/sysconfig/network-scripts/ifcfg-eth0
+	modify: BOOTPROTO="static"
+		    IPADDR=192.168.0.3
+   2.service network restart
+
+Q3: ip link related commands:
+A: ip link set <dev> down|up
+   ip link del <dev>
+   ip link show
+
+Q4: How to save libvirtd.log to specified directory？
+A: change /etc/libvirt/libvirtd.conf
+	log_filters="1:libvirt 3:event 3:json 1:util 1:qemu"
+	log_outputs="1:file:/tmp/libvirtd.log"
+
+Q5:error: Unable to allow access for disk path /dev/sdb1﻿﻿: No such file or directory?
+A:when you want write or read data from a device or partition, you must format it to a right file system first.
+  eg: mf.ext4 /dev/sdb1
+
+Q6:when use qemu-img create a img and do not set size
+  eg: qemu-img create -f qcow2 -o backing_file=/dev/sdb /var/lib/libvirt/images/demo.qcow2
+A:the size of image will pretermit to the whole device or partition size
+
+Q7:iscsi configration and use(ask for S4)
+A:1.Send "need iscsi storage" ticket to S4
+  2.Discover targets at a given IP address (S4 gives) :
+         iscsiadm --mode discoverydb --type sendtargets --portal $ISCSI_SERVER --discover
+    Login, must use a node record id found by the discovery:
+         iscsiadm --mode node --targetname xxxxxxxxxx --portal $ISCSI_SERVER --login
+	then you will get the iscsi storage (#fdisk -l).
+    Logout (if you want):
+         iscsiadm --mode node --targetname xxxxxxxxxx --portal $ISCSI_SERVER --logout
+Note: Before you do below actions, you must install iscsi-initiator-utils first (#yum install iscsi-initiator-utils).
+
+Q8:iSCSI learning(configure by yourself)
+A:  target(server)
+	1.	#yum install scsi-target-utils
+	2.	target configure(/etc/tgt/targets.conf)
+			Build target:
+				#tgtadm --lld iscsi --op new --mode target --tid 1 -T iqn.2012-01.cn.nayun:test-01
+				#tgtadm --lld iscsi --op show --mode target (list LUN for current)
+			Add LUN for target:
+				#tgtadm --lld iscsi --op new --mode logicalunit --tid 1 --lun 1 -b /dev/sdb
+				#tgtadm --lld iscsi --op show --mode target (will list another more LUN)
+			Set control strategy of accessing target:
+				#tgtadm --lld iscsi --op bind --mode target --tid 1 -I ALL  (All Initiator in the network can access)
+				#tgtadm --lld iscsi --op bind --mode target --tid 1 -I 192.168.1.210    (Only 192.168.1.210 can access)
+				#tgtadm --lld iscsi --op bind --mode target --tid 1 -I 192.168.1.0/24   (Only 192.168.1.0~24 can access)
+
+				#tgtadm --lld iscsi --op show --mode target (will list "ACL information" of the LUN)
+
+		note:you could also get the same result by edit /etc/tgt/targets.conf
+			<target iqn.2012-01.cn.nayun:test-01>
+                backing-store /dev/sdb
+                incominguser scott tiger
+                initiator-address 192.168.1.0/24
+                initiator-address 192.168.1.210
+			</target>
+	3.	restart tgtd service
+
+	initiator(client) (ralated to Q7)
+	1.	#yum install iscsi-initiator-utils
+	2.	there are two process: iscsi and iscsid
+	3.	#iscsiadm --mode discoverydb --type sendtargets --portal $ISCSI_SERVER --discover
+		#iscsiadm --mode node --targetname iqn.2001-05.com.equallogic:0-8a0906-6eb1f7d03-30cf49b25f24f94d-libvirt-1-150313 --portal $ISCSI_SERVER --login
+		#iscsiadm --mode node --targetname iqn.2001-05.com.equallogic:0-8a0906-6eb1f7d03-30cf49b25f24f94d-libvirt-1-150313 --portal $ISCSI_SERVER --logout
+
+Q9:modify hostname and access other pc by hostname?
+A:Two ways:
+  1.temporary one: #hostname newname (will lose effectiveness after reboot)
+  2.permanent one:
+	edit two files: /etc/hosts and /etc/sysconfig/network,
+	#vim /etc/sysconfig/network
+		NETWORKING=yes
+		HOSTNAME=your.new.hostname
+	#vim /etc/hosts
+		127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+		::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+		$HOSTIP	 libn755.redhat.com              libn755 #your host ip and hostname, #hostname -i will read this
+		$HOSTIP  libn760.redhat.com              libn760 #ip and hostname which you let to access your host with hostname
+
+Q10:Device Mapper Multipathing(take care)
+A: http://sources.redhat.com/lvm2/wiki/MultipathUsageGuide
+
+
+Q11:mount a partition when the system start
+A:#vim /etc/fstab
+  add: /dev/sdb1(the partition which you want to mount)     /mnt/abc(mount dir)     ext3(file system)    defaults       0        0
+
+
+Q12:How to install x windows to a mini guest system?
+A:	1. copy a valid repo file to guest
+	2. # yum grouplist
+	3. # yum groupinstall x windows system Desktop
+	4. then you can start xwindows
+		# startx
+
+
+Q13:when do some libvirt test meet nfs permission denied?
+A:make sure nfs server and client both have the status:
+	#getenforce
+	Enforcing
+	#getsebool -a | grep virt_use_nfs
+	virt_use_nfs --> on
+
+	Note: if you can not mount nfs successfully, first to check the nfs server machine's nfs service must be started, and you'd better
+	to mount with -o vers=3 option. eg: #mount $NFS_SERVER_IP:/data/images/ /mnt/images -o vers=3
+
+Q14:qxl suport for windows
+A:must delete the dispaler driver clearly before you update the driver
+
+
+Q15:Use fdisk to create/delete a partition
+A:You should do that carefully. And you should have unused spaces in your hard disk.
+  Create:
+	#fdisk /dev/sdb
+	p/e (select a primary partition/extended)
+	2 (partition number)
+	enter (default to the cylinder you can use)
+	+100M (specify the size of the partition)
+	p (can see the partition you create just now)
+	w (save the oprations)
+	q (quit from fdisk)
+  Delete:
+	#fdisk /dev/sdb
+	p
+	d
+	2 (which partition you want to delete)
+	w
+	p (you cannot see the primary partition of 2)
+	q
+
+
+Q16:Use parted to create more than 4 primary partitions
+A:If you want to create more than 4 primary partitions to use, you should use parted to format the disk to GPT, and fdisk cannot use in the GPT format disk.
+	#parted /dev/sdb
+	help (help you to use the tool easily)
+	print (check the partition status of /dev/sdb)
+	mklabel gpt
+	mkpart parmary 0 1000000
+	print
+	quit
+	#mkfs.ext3 /dev/sdb1
+	#mount -t ext3 /dev/sdb1 /data
+	#df -h (you can see the /dev/sdb1 partition is mounted at /data)
+
+
+Q17:How to maintain profile in PXE?
+A:You can clone a project to local, project may be virt-qe
+	$ git clone git+ssh://git@qe-git.englab.nay.redhat.com/~/repo/virt-qe
+  1. Preparation
+	1.1 Global configuration for smtp server
+	$ git config --global sendemail.smtpserver smtp.corp.redhat.com
+	$ git config --global sendemail.smtpserverport 25
+
+	config your personal info that is displayed as git committer info
+	$ git config --global user.name "Your Name"
+	$ git config --global user.email you@example.com
+
+	1.2 Add the following lines into .git/config for your-project such as virt-qe
+	[format]
+		    subjectprefix = "virt-qe][PATCH"
+		    suffix = .patch
+		    numbered = auto
+		    signoff = false
+
+  2. Add distros firstly, use profile_test.dostros as an example
+	$ cd repo/distros
+	$ vim profile_test.dostros
+	[General]
+	arch : x86_64
+	breed : redhat
+	comment :
+	kernel : http://download.englab.nay.redhat.com/pub/rhel/nightly/RHEL6.3-20120304.n.0/6.3/Server/x86_64/os/images/pxeboot/vmlinuz
+	initrd : http://download.englab.nay.redhat.com/pub/rhel/nightly/RHEL6.3-20120304.n.0/6.3/Server/x86_64/os/images/pxeboot/initrd.img
+	kernel_options : firstboot linux selinux=disabled console=tty0 nmi_watchdog=0
+	kernel_options_post :
+	ks_meta :
+	mgmt_classes :
+	os_version : rhel6
+	redhat_management_key :
+	redhat_management_server :
+	source_repos :
+	template_files :
+	$ git profile_test.dostros
+
+  3. Add the kickstart files. There are three direcotries in the kickstart directory -- general, kvm and rhev. The kvm autotest team will add the kickstart file into the kvm directory. The rhev team will add the kickstart file into the rhev directory. The sysadm will add the kickstart files of profile requied by other teams into the general direcotry. Use profile_test-rhel6u3-64b-20120304.n.0.cfg for example:
+	$ cd /root/repo/kickstarts/libvirt/RHEL6
+	$ vim profile_test-rhel6u3-64b-20120304.n.0.cfg
+	#kickstart option
+	auth  --useshadow  --enablemd5
+	bootloader --append "processor.max_cstate=1 nmi_watchdog=0" --location=mbr
+	zerombr
+	text
+	firewall --disabled
+	firstboot --disable
+	#interactive
+	keyboard us
+	lang en_US
+	#_edit_ install tree
+	url --url=http://download.englab.nay.redhat.com/pub/rhel/nightly/RHEL6.3-20120304.n.0/6.3/Server/x86_64/os/
+	network --bootproto=dhcp --device=eth0 --onboot=on
+	#user root password "redhat"
+	rootpw --iscrypted $1$pDj5hfT7$SKwmFsQdYEnyCJ5qKphwE1
+	#autopart
+	selinux --disabled
+	timezone --isUtc Asia/Shanghai
+	install
+	firstboot --disabled
+	reboot
+	%post
+	rpm -ivh http://fileshare.englab.nay.redhat.com/pub/redhat/toolchain/smolt/epel-release-6-5.noarch.rpm
+	%end
+	$ git add profile_test-rhel6u3-64b-20120304.n.0.cfg
+
+  4. Add the profile file
+	$ cd repo/profiles
+	$ vim profile_test-rhel6u3-64b-20120304.n.0.profile
+	[General]
+	distro = RHEL6u3-Server-x64-20120304.n.0
+	kickstart = libvirt/RHEL6/profile_test-rhel6u3-64b-20120304.n.0.cfg
+	$ git add profile_test-rhel6u3-64b-20120304.n.0.profile
+
+  5. Commit the files into git server
+	$ cd repo
+	$ git commit -m "Add the profile profile_test-rhel6u3-64b-20120304.n.0"
+	$ git push
+	If get error, you can :
+	$ git pull
+	then repush :
+	$ git push
+
+  6. Wait nearly two minutes, this profile will add into the cobbler. And you can get your own profile to install your OS from PXE.
+
+Q18:How to config an eth and get ip address?
+A:Write a file - /ets/sysconfig/network-script/ifcfg-eth[N],
+here is a sample:
+# cat /etc/sysconfig/network-scripts/ifcfg-eth4
+DEVICE="eth4"
+BOOTPROTO="dhcp"
+#NM_CONTROLLED="yes"
+ONBOOT="yes"
+Then restart network service.
+
+OR you can run the command:
+# dhclient eth[N]
+
+
+Q19:How to change the default route ?
+A:#ip route change default via xxxx dev eth3
+xxxx is eth3's gateway:
+if eth's BROADCAST is xx.xx.7.255, then it's gateway is xx.xx.7.254.
+
+
+Q20:How to let SSH do not need password ?
+A:1.# ssh-keygen
+y
+Enter
+Enter
+2.# ssh-copy-id root@
+3.For git:
+ssh-copy-id git@qe-git.englab.nay.redhat.com
+
+
+Q21:RHEVM+VDSM:
+new ISO domain: Only can new one.
+A:1. "Storage"->"New Domain"->select "ISO NFS"
+
+Q22:find packages for some unknown commands
+A:yum provides */command
+
+
+Q23:How to use virtlab command (F16 & F17)?
+A:1. # wget http://fileshare.englab.nay.redhat.com/pub/redhat/toolchain/virtlab/toolchain_fedora.repo -P /etc/yum.repos.d/
+  2. # yum -y install virtlab-remote krb5-libs krb5-workstation --nogpg
+  3. # rm /etc/krb5.conf
+  4. # wget http://fileshare.englab.nay.redhat.com/pub/redhat/toolchain/virtlab/Fedora/f14/krb5.conf -P /etc/
+  5. # useradd $yourkerberosname
+  6. # su $yourkerberosname
+  7. # kinit
+  8. # yum install perl-LWP-Protocol-https    (-----> resolve problem: "501 Protocol scheme 'https' is not supported (LWP:rotocol::https not installed) at /usr/bin/virtlab line 763")
+  9. # export PERL_LWP_SSL_VERIFY_HOSTNAME=0  (-----> resolve problem: "500 Can't connect to virtlab.englab.nay.redhat.com:443(SSL connect attempt failed with unknown errorerror:
+14090086:SSL routines:SSL3_GET_SERVER_CERTIFICATE:certificate verify failed)")
+  10.# virtlab --help
+
+
+Q24:Format U storage:
+A:1. # umount /media/xxxxxx-xxxxxx
+  2. # mkfs.vfat -I /dev/sdx
+
+Q25:restart NPIV machine（amd-1352-8-2 IP: xx.xx.83.204 ）：
+A:# fence_apc_snmp -a qepdu16.englab.nay.redhat.com -n 14 -l fence -p redhat --power-wait 10
+
+
+Q26:Two level's boot options:
+A: Install two or more OSs in one disk.
+Install bootloader to (hd0,x)/boot dir of each OS, and add following lines to the first grub.conf:
+
+title xxxxxxxxxxxxxxxxxxxxx
+rootnoverify (hd0,x)   # x is the partition which the OS installed in.
+chainloader +1
+
+
+Q27:Set iptables(For rhel5u9 libvirt new packages' Acceptance testing):
+A:Add following lines to /etc/sysconfig/iptables(can be saved from command # iptables-save > /etc/sysconfig/iptables):
+:RH-Firewall-1-INPUT - [0:0]
+-A RH-Firewall-1-INPUT -p tcp -m tcp  -j ACCEPT
+-A RH-Firewall-1-INPUT -p udp -m udp  -j ACCEPT
+
+
+Q28:Synchronize clock to clock.redhat.com:
+A:# ntpdate clock.redhat.com
+or # rdate clock.redhat.com (with -s)
+
+
+Q29:Install a guest from PXE:
+A:Define a guest with xml:
+...
+  <os>
+    <type arch='x86_64' machine='rhel6.4.0'>hvm</type>
+    <boot dev='network'/>
+    <boot dev='hd'/>
+  </os>
+...
+    <interface type='direct'>
+      <mac address='52:54:00:2c:97:02'/>
+      <source dev='eth0' mode='vepa'/>
+      <model type='virtio'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x03' function='0x0'/>
+    </interface>
+...
+
+Then start guest, guest will boot up from PXE.
+
+Q30:Boot from kernel directly:
+A:modify the guest xml:
+...
+  <os>
+    <type arch='x86_64' machine='rhel6.4.0'>hvm</type>
+    <kernel>/var/lib/libvirt/boot/vmlinuz</kernel>
+    <initrd>/var/lib/libvirt/boot/initrd.img</initrd>
+    <boot dev='network'/>
+    <boot dev='hd'/>
+  </os>
+...
+
+Then start guest. guest will boot from kernel directly.
+
+Q31:# yum provides */ncftool
+Loaded plugins: product-id, refresh-packagekit, rhnplugin, security, subscription-manager, versionlock
+Updating certificate-based repositories.
+Unable to read consumer identity
+netcf-0.1.9-2.el6.x86_64 : Cross-platform network configuration library
+Repo        : rhel64
+Matched from:
+Filename    : /usr/bin/ncftool
+
+Q32: HP-dl585g7 to enbale iommu in BIOS(RBSU):
+1.Advanced Options -> SR-IOV -> Enable;
+2.System options -> processor options -> IOMMU -> Enable;
+
+
+Q33: How to get src codes from xxxxxxxx.src.rpm packages:
+# rpm2cpio xxxxxxxx.src.rpm| cpio -idv
+
+Q34: Error when attach device or disk to guest :
+error : qemuMonitorJSONCheckError:353 : internal error unable to execute QEMU command '__com.redhat_drive_add': Device 'drive-virtio-disk1' could not be initialized
+A: Check virt_use_nfs.
+
+Q35: How to send message to other users on one host?
+A: 1. # who
+root     pts/1        2013-01-07 16:17 (xx.xx.xx.233)
+root     pts/2        2013-01-07 16:17 (dhcp-65-168.nay.redhat.com)
+2. # wall 'I have resolved this host and am using it. If somebody is using it, pls let me know. Thanks a lot.'
+
+Q36: virsh rail and libvirt-test-API git path:
+Q: git clone git+ssh://git@qe-git.englab.nay.redhat.com/~/repo/libvirt/libvirt-test-API
+   git clone git+ssh://git@qe-git.englab.nay.redhat.com/~/repo/libvirt/virsh-rail
+   git clone git+ssh://git@qe-git.englab.nay.redhat.com/~/repo/virt-qe/IEEE_Test_Plans/Libvirt.git
+
+Q37: install guest from boot.iso:
+A: 1.Download a boot.iso from a work well os tree:
+  # wget http://download.englab.nay.redhat.com/pub/rhel/released/RHEL-6/6.4/Server/x86_64/os/images/boot.iso
+
+  2. Edit a guest with follow xml:
+  ...
+  <os>
+    <type arch='x86_64' machine='rhel6.4.0'>hvm</type>
+    <boot dev='cdrom'/>
+  </os>
+  ...
+    <disk type='file' device='cdrom'>
+      <driver name='qemu' type='raw'/>
+      <source file='/var/lib/libvirt/boot/boot.iso'/>
+      <target dev='vda' bus='virtio'/>
+      <readonly/>
+      <alias name='virtio-disk0'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x05' function='0x0'/>
+    </disk>
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='raw'/>
+      <source file='/var/lib/libvirt/images/bootiso_test.img'/>
+      <target dev='hda' bus='ide'/>
+      <alias name='ide0-0-0'/>
+      <address type='drive' controller='0' bus='0' target='0' unit='0'/>
+    </disk>
+  ...
+    <interface type='direct'>
+      <mac address='52:54:00:03:87:c8'/>
+      <source dev='eth0' mode='vepa'/>
+      <target dev='macvtap0'/>
+      <alias name='net0'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x03' function='0x0'/>
+    </interface>
+  ...
+  3. start guest
+  4. virt-viewer guest, using http install guest step by step.
+
+Q38: How to format a scsi disk:
+A: # modprobe scsi_debug lbpu=1 lbpws=1
+
+Q39: How to synchronize code of rhel6 branch to rhel7 from git?
+A: 1. git checkout rhel6
+   2. git log
+   3. select/save the git log number of the patch, for example: 0122d31d90f428f3de6f0a457fb8fdd3f91c356a
+   4. git checkout rhel7
+   5. git cherry-pick 0122d31d90f428f3de6f0a457fb8fdd3f91c356a
+   6. git pull
+   7. git push
+   8. git log       -- can see the log
+
+Q40: How to install multi-OS in host using http?
+A: Install an os on a partition, then download the vmlinuz and initrd.img file to /boot/, and add following lines to /etc/grub.conf:
+	kernel /boot/vmlinuz biosdevname=0 root=live:http://download.englab.nay.redhat.com/pub/rhel/rel-eng/latest-RHEL-7/compose/Server/x86_64/os/LiveOS/squashfs.img
+	initrd /boot/initrd.img
+Note: if your host has a win7 system(maybe have a 'ntfs' file system), anaconda will install failed(it detected 'ntfs' and want to install a 'ntfsprogs' package to read it, but can not find that package in installation repo), you need to modify the anaconda code:
+# cd /usr/lib64/python2.7/site-packages/pyanaconda/
+# grep ntfsprogs . -R
+
+Q41: Some SQL command(used for RHEVM to delete some sordid info):
+# psql -d engine -U postgres -c "select * from information_schema.tables where table_type = 'BASE TABLE'"
+# psql -d engine -U postgres -c "delete from vds_static where vds_id = '27bb0fc0-22a3-45d7-a229-567de23d02f0'"
+# psql -U postgres engine -c 'select * from storage_server_connections;'
+Note:
+tables important vm_dynamic/static/statistics - guest list, base_disks/storage_domain_static/snapshots - storages, vds* - host select table_name from information_schema.tables where table_type = 'BASE TABLE' and table_name like '%vds%'" - find vds*
+
+Q42: Add "biosdevname=0 reboot=pci" to <kernel options> in distro file and also add it to kickstart file will resolve the network card's name problem.
+
+Q43: Quickly download libvirt newest packages: "wget -r -nd -np -A rpm -P /tmp/libvirt http://fileshare.englab.nay.redhat.com/pub/section3/libvirtmanual/libvirt-pkg/all-pkgs-pool/rhel6/libvirt/0.10.2-18.el6_4.8/"
+
+Q44: Search file by string "abc" using grep:
+A: # grep -n "abc" -r ./
+   or # grep -Rn "abc" *
+
+Q45: How to get core dump file for a daemon:
+A: 1. # ulimit -Sc unlimited    ----enable core dump
+   2. Add "DAEMON_COREFILE_LIMIT='unlimited'" to you /etc/sysconfig/init file   ----enable core dump for daemon process
+   3. # echo '/tmp/core' > /proc/sys/kernel/core_pattern    ----specify the path for core dump file(the deafult path is /core.$pidofdaemon)
+   Then if a daemon process gets a segment fault(or gets a SIGSEGV), you will get the core dump file.
+
+Q46: Need install git, perl-Git and perl-Error for git command;
+    And need install expect and nmap packages for virsh rail project.
+
+Q47: Encrypt/decrypt a file:
+A: $ gpg -c myfile #输入密码后会产生一个myfile.gpg 文件，这就是加密后的文件。
+   $ gpg -o myfile -d myfile.gpg #解密文件myfile.gpg 并将解密后的文件输出为myfile。
+
+Q48: How to install a guest by nfs method using virt-manager?
+A: 1. Download an iso file, move it to a nfs server :/data/images/
+   2. Set up a nfs server on :
+   # cat /etc/export
+   /data/images    *(rw,insecure)
+   3. Start nfs server:
+   # service nfs start
+   4. new a guest using virt-manager, enter the right url to "Installation media URL": nfs://nfs.englab.nay.redhat.com/pub/rhel/..../tree-x86_64/
+   5. Forward...Finished, then input:  and /data/images/ when asking you to input nfs server and directory then OK.
+
+Q49: How to install a guest by network(http,pxe,nfs and ftp)?
+A: 1. Should build a bridge on host:
+Change ifcfg-eth0 to:
+# cat /etc/sysconfig/network-scripts/ifcfg-eth0
+# Intel Corporation 82579LM Gigabit Network Connection
+DEVICE=eth0
+HWADDR=2C:41:38:94:33:9F
+ONBOOT=yes
+BRIDGE=br0
+
+And add an ifcfg-br0:
+# cat /etc/sysconfig/network-scripts/ifcfg-br0
+DEVICE=br0
+TYPE=Bridge
+BOOTPROTO=dhcp
+ONBOOT=yes
+DELAY=0
+
+Stop NetworkManager service and restart network service:
+# service NetworkManager stop
+# service network restart
+
+# ifconfig
+br0       Link encap:Ethernet  HWaddr 2C:41:38:94:33:9F
+          inet addr:$HOSTIP      Bcast:        255  Mask:255.255.252.0
+          inet6 addr: fe80::2e41:38ff:fe94:339f/64 Scope:Link
+          UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+          RX packets:57 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:64 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:0
+          RX bytes:6503 (6.3 KiB)  TX bytes:42707 (41.7 KiB)
+
+eth0      Link encap:Ethernet  HWaddr 2C:41:38:94:33:9F
+          inet6 addr: fe80::2e41:38ff:fe94:339f/64 Scope:Link
+          UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+          RX packets:764640 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:454494 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:1000
+          RX bytes:674151300 (642.9 MiB)  TX bytes:333964803 (318.4 MiB)
+          Interrupt:66 Memory:fe400000-fe420000
+
+lo        Link encap:Local Loopback
+          inet addr:127.0.0.1  Mask:255.0.0.0
+          inet6 addr: ::1/128 Scope:Host
+          UP LOOPBACK RUNNING  MTU:16436  Metric:1
+          RX packets:168085 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:168085 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:0
+          RX bytes:331974974 (316.5 MiB)  TX bytes:331974974 (316.5 MiB)
+
+  2. New a guest from virt-manager, select install method: "network install" or "network boot",
+     then enter: nfs://nfs.englab.nay.redhat.com/pub/rhel/rel-eng/RHEL5.10-Server-20130718.2/tree-i386/ or http://download.englab.nay.redhat.com/pub/rhel/rel-eng/RHEL5.10-Server-20130718.2/tree-x86_64/ or ftp://*** if you choose "network install", or select a profile from pxe server if you choose "network boot", then install.
+
+
+Q50: How to resove startx failed problem: "Internal error:    Could not resolve keysym XF86AudioMicMute"
+A: copied the contents of /etc/X11/xinit/xinitrc into ~/.xinitrc
+
+Q51: How to add user with passwd to libvirt when you have vdsm package installed?
+A: # echo redhat | saslpasswd2 -p -a libvirt test
+
+Q52: Deal with error when # git clone:
+warning: remote HEAD refers to nonexistent ref, unable to checkout.
+A: Add
+"[branch "master"]
+        remote = origin
+        merge = refs/heads/master
+"
+to .git/config file
+Then # git config push.default current
+
+Q53: How to call libvirt api from python?
+A: # python
+>>> import libvirt
+>>> con = libvirt.open(None)
+>>> dir(con)
+['__del__', '__doc__', '__init__', '__module__', '_dispatchDomainEventBalloonChangeCallback', '_dispatchDomainEventCallbacks', '_dispatchDomainEventDiskChangeCallback', '_dispatchDomainEventGenericCallback', '_dispatchDomainEventGraphicsCallback', '_dispatchDomainEventIOErrorCallback', '_dispatchDomainEventIOErrorReasonCallback', '_dispatchDomainEventLifecycleCallback', '_dispatchDomainEventPMSuspendCallback', '_dispatchDomainEventPMSuspendDiskCallback', '_dispatchDomainEventPMWakeupCallback', '_dispatchDomainEventRTCChangeCallback', '_dispatchDomainEventTrayChangeCallback', '_dispatchDomainEventWatchdogCallback', '_o', 'baselineCPU', 'changeBegin', 'changeCommit', 'changeRollback', 'close', 'compareCPU', 'createLinux', 'createXML', 'defineXML', 'dispatchDomainEventBlockPullCallback', 'domainEventDeregister', 'domainEventDeregisterAny', 'domainEventRegister', 'domainEventRegisterAny', 'domainXMLFromNative', 'domainXMLToNative', 'findStoragePoolSources', 'getCPUStats', 'getCapabilities', 'getCellsFreeMemory', 'getFreeMemory', 'getHostname', 'getInfo', 'getLibVersion', 'getMaxVcpus', 'getMemoryParameters', 'getMemoryStats', 'getSysinfo', 'getType', 'getURI', 'getVersion', 'interfaceDefineXML', 'interfaceLookupByMACString', 'interfaceLookupByName', 'isAlive', 'isEncrypted', 'isSecure', 'listAllDevices', 'listAllDomains', 'listAllInterfaces', 'listAllNWFilters', 'listAllNetworks', 'listAllSecrets', 'listAllStoragePools', 'listDefinedDomains', 'listDefinedInterfaces', 'listDefinedNetworks', 'listDefinedStoragePools', 'listDevices', 'listDomainsID', 'listInterfaces', 'listNWFilters', 'listNetworks', 'listSecrets', 'listStoragePools', 'lookupByID', 'lookupByName', 'lookupByUUID', 'lookupByUUIDString', 'migrate', 'migrate2', 'networkCreateXML', 'networkDefineXML', 'networkLookupByName', 'networkLookupByUUID', 'networkLookupByUUIDString', 'newStream', 'nodeDeviceCreateXML', 'nodeDeviceLookupByName', 'numOfDefinedDomains', 'numOfDefinedInterfaces', 'numOfDefinedNetworks', 'numOfDefinedStoragePools', 'numOfDevices', 'numOfDomains', 'numOfInterfaces', 'numOfNWFilters', 'numOfNetworks', 'numOfSecrets', 'numOfStoragePools', 'nwfilterDefineXML', 'nwfilterLookupByName', 'nwfilterLookupByUUID', 'nwfilterLookupByUUIDString', 'registerCloseCallback', 'restore', 'restoreFlags', 'saveImageDefineXML', 'saveImageGetXMLDesc', 'secretDefineXML', 'secretLookupByUUID', 'secretLookupByUUIDString', 'secretLookupByUsage', 'setKeepAlive', 'setMemoryParameters', 'storagePoolCreateXML', 'storagePoolDefineXML', 'storagePoolLookupByName', 'storagePoolLookupByUUID', 'storagePoolLookupByUUIDString', 'storageVolLookupByKey', 'storageVolLookupByPath', 'suspendForDuration', 'unregisterCloseCallback', 'virConnGetLastError', 'virConnResetLastError']
+>>> dom = con.lookupByName('foo')
+>>> dom.schedulerParameters()
+>>> dom.schedulerParametersFlags(0)
+>>> domxml = file("test/xml", "r").read()
+>>> con.createXML(domxml, 2)
+>>> con.listAllDomains(0)
+[<libvirt.virDomain instance at 0x7f5e3dbeea70>, <libvirt.virDomain instance at 0x7f5e3cb72248>, <libvirt.virDomain instance at 0x7f5e3cb72bd8>]
+>>> dom = con.listAllDomains(1)[0]
+>>> dom.memoryStats()
+{'actual': 1048576L, 'rss': 292332L}
+
+Q54: If you get error like "xxxx is not supported by this QEMU" when start a guest?
+A: Use the command to query if xxxx is in the output of the command:
+# virsh qemu-monitor-command guest --pretty --cmd '{"execute": "query-command-line-options"}' | more
+
+Q55: Shell evaluate:
+state=`virsh list --all | awk '{print $3}' | sed -n '3p'`
+name=`virsh list --all | awk '{print $2}' | sed -n '6p'`
+IF statement:
+if [ $state = "running" ]; then virsh destroy $name; else virsh start $name; fi
+
+Q56: Disk capacity= headers*cylinders*sectors*unit of a sector (512 bytes)
+
+
