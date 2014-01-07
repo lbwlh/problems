@@ -1,0 +1,95 @@
+Firstly, issue the script:/root/setup-bridge.sh
+# cat setup-bridge.sh
+#!/bin/bash
+
+hwaddr=$(ip link show eth0 | sed -n '/ether/p' | awk '{ print $2 }')
+
+cat <<EOF > /etc/sysconfig/network-scripts/ifcfg-switch
+DEVICE=switch
+BOOTPROTO=dhcp
+PEERNTP=yes
+ONBOOT=yes
+TYPE=Bridge
+DELAY=0
+EOF
+
+cat <<EOF > /etc/sysconfig/network-scripts/ifcfg-eth0
+DEVICE=eth0
+HWADDR=$hwaddr
+ONBOOT=yes
+BRIDGE=switch
+EOF
+
+cat <<EOF >/etc/qemu-ifup
+#!/bin/bash
+bridge=switch
+/sbin/ip link set \$1 0.0.0.0 up
+/usr/sbin/brctl addif \${bridge} \$1
+EOF
+
+chmod +x /etc/qemu-ifup
+
+#/sbin/service network restart
+
+Then issue the qemu command:
+1. with graphic:
+# /usr/libexec/qemu-kvm -enable-kvm -monitor stdio -vnc :10 -hda /data/images/raw.img -netdev tap,script=/etc/qemu-ifup,id=netdev0 -device virtio-net-pci,netdev=netdev0,id=device-net0,mac=00:24:7E:11:22:33 -m 1G -serial unix:/tmp/serial.log,server,nowait
+
+Then open another terminal to catch the guest:
+# vncviewer :10
+
+2. without graphic, using text mode:
+# /usr/libexec/qemu-kvm -enable-kvm -monitor stdio -nographic -hda /data/images/raw.img -netdev tap,script=/etc/qemu-ifup,id=netdev0 -device virtio-net-pci,netdev=netdev0,id=device-net0,mac=00:24:7E:11:22:33 -m 1G -serial unix:/tmp/serial.log,server,nowait
+
+And open another terminal to catch the guest:
+# nc -U /tmp/serial.log
+
+3. with option "-nographic -vga none" can also start guest successfully - bug 873507:
+a. you should rm "splash.xpm.xz" in /boot/grub/ dir in guest;
+b. add 'console=tty0 console=ttyS0,115200' to guest kernel line;
+c. # nc -U /tmp/serial.log
+
+
+4. Use following command line to start a guest in RHEVM:
+# /usr/libexec/qemu-kvm -name amd -S -M rhel6.3.0 -cpu Opteron_G1 -enable-kvm -m 512 -smp 4,sockets=2,cores=1,threads=2 -uuid 99884c11-d8ca-4b06-b42d-670e21b4ec35 -nodefaults -chardev socket,id=charmonitor,path=/var/lib/libvirt/qemu/amd.monitor,server,nowait -no-shutdown -device piix3-usb-uhci,id=usb,bus=pci.0,addr=0x1.0x2 -device virtio-serial-pci,id=virtio-serial0,bus=pci.0,addr=0x5 -drive if=none,media=cdrom,id=drive-ide0-1-0,readonly=on,format=raw,serial= -device ide-drive,bus=ide.1,unit=0,drive=drive-ide0-1-0,id=ide0-1-0 -drive file=/rhev/data-center/222a565f-1606-4b27-bea0-48d3dabe458c/71d883d5-f680-4278-8d93-7270dc078c27/images/6d095353-ac6d-436a-8cf5-d779ca4ce17b/57890831-5b60-4843-b118-c0db64f2e031,if=none,id=drive-virtio-disk0,format=raw,serial=6d095353-ac6d-436a-8cf5-d779ca4ce17b,cache=none,werror=stop,rerror=stop,aio=threads -device virtio-blk-pci,scsi=off,bus=pci.0,addr=0x6,drive=drive-virtio-disk0,id=virtio-disk0,bootindex=2 -chardev socket,id=charchannel1,path=/var/lib/libvirt/qemu/channels/amd.org.qemu.guest_agent.0,server,nowait -device virtserialport,bus=virtio-serial0.0,nr=2,chardev=charchannel1,id=channel1,name=org.qemu.guest_agent.0 -chardev spicevmc,id=charchannel2,name=vdagent -device virtserialport,bus=virtio-serial0.0,nr=3,chardev=charchannel2,id=channel2,name=com.redhat.spice.0 -chardev pty,id=charconsole0 -device virtconsole,chardev=charconsole0,id=console0 -spice port=5900,disable-ticketing -k en-us -vga qxl -global qxl-vga.vram_size=67108864 -device intel-hda,id=sound0,bus=pci.0,addr=0x4 -device hda-duplex,id=sound0-codec0,bus=sound0.0,cad=0 -device virtio-balloon-pci,id=balloon0,bus=pci.0,addr=0x7 -monitor stdio
+
+char device redirected to /dev/pts/0
+QEMU 0.12.1 monitor - type 'help' for more information
+(qemu)
+
+and can using spicec to connect to the guest:
+# spicec -h $hostip -p 5900
+
+(qemu) c
+will start the guest.
+
+
+5. split the commans:
+/usr/libexec/qemu-kvm \
+-name 'vm1' \
+-nodefaults \
+-m 4096 \
+-smp 4,cores=2,threads=1,sockets=2 \
+-vnc :22 \
+-vga qxl \
+-rtc base=utc,clock=host,driftfix=none \
+-drive file=/var/lib/libvirt/images/guest.img,if=none,cache=none,id=virtio0 \
+-device virtio-blk-pci,drive=virtio0 \
+-device ich9-usb-uhci1,id=usb1 \
+-boot order=cdn,once=c,menu=on \
+-enable-kvm \
+-monitor stdio \
+-global PIIX4_PM.disable_s3=0 \
+-global PIIX4_PM.disable_s4=0 \
+-chardev socket,id=qmp_id_qmpmonitor1,path=/tmp/qmpmonitor-1,server,nowait \
+-mon chardev=qmp_id_qmpmonitor1,mode=control \
+-chardev socket,id=isa-serial-1,path=/tmp/isa-serial-1,server,nowait \
+-device isa-serial,chardev=isa-serial-1 \
+-device virtio-serial,id=virt-serial-1,max_ports=31,bus=pci.0 \
+-chardev socket,id=virtio-serial-1-1,path=/tmp/virtio-serial-1-1,server,nowait \
+-device virtserialport,chardev=virtio-serial-1-1,name=virtio.serial.1.1,bus=virt-serial-1.0,id=virtio-serial-port1-1 \
+-device virtio-serial,id=virt-console-1 \
+-chardev socket,id=virtio-console-1-1,path=/tmp/virtio-console-1-1,server,nowait \
+-device virtconsole,chardev=virtio-console-1-1,name=virtio.console.1.1,bus=virt-console-1.0 \
+-device virtio-rng-pci
+
