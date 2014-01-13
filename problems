@@ -580,4 +580,25 @@ if [ $state = "running" ]; then virsh destroy $name; else virsh start $name; fi
 
 Q56: Disk capacity= headers*cylinders*sectors*unit of a sector (512 bytes)
 
+Q57: libvirt-autotest simple start
+A: # git clone https://github.com/autotest/autotest.git
+   # git clone git://github.com/autotest/virt-test.git
+   # yum groupinstall -y "Development Libraries" "Development Tools"
+   # yum install -y dnsmasq genisoimage python-imaging gdb boost-devel glibc-devel libvirt python-devel ntpdate gstreamer-plugins-good gstreamer-python tcpdump
+   # yum install -y libblkid-devel popt-devel boost-devel p7zip
+   # export AUTOTEST_PATH=$WORKSPACE/autotest
+   # cd $WORKSPACE/virt-test
+   # python libvirt/get_started.py
+   # ./run -t libvirt --list-tests
+   # ./run -t libvirt --tests virsh_vol_create_from.positive_test.dest_vol_format.qed.src_vol_format.qed.dest_pool_type.disk.src_pool_type.scsi
 
+   BTW, directory and parent directory which include images must have w+x authorities for root, or you will get "permission denied" error.
+
+Q58: you will get error like:
+unable to connect to libvirt.
+authentication failed: polkit: polkit\56retains_authorization_after_challenge=1
+Authorization requires authentication but no agent is available.
+A: you are using normal user to start virt-manager, please use root.
+
+Q59: How to install a guest without graphic:
+A: # g="rs1"; virt-install -n "$g" -r 1000 --vcpus 1 --location http://download.eng.nay.redhat.com/pub/rhel/rel-eng/RHEL6.5-20130830.2/6/Server/x86_64/os/ -x "console=ttyS0" --disk path=/var/lib/libvirt/images/$g.img,size=5 -w network=default --hvm --graphics none --virt-type=kvm
