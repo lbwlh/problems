@@ -602,3 +602,12 @@ A: you are using normal user to start virt-manager, please use root.
 
 Q59: How to install a guest without graphic:
 A: # g="rs1"; virt-install -n "$g" -r 1000 --vcpus 1 --location http://download.eng.nay.redhat.com/pub/rhel/rel-eng/RHEL6.5-20130830.2/6/Server/x86_64/os/ -x "console=ttyS0" --disk path=/var/lib/libvirt/images/$g.img,size=5 -w network=default --hvm --graphics none --virt-type=kvm
+
+
+Q60: How to edit guest.img like add "console=ttyS0,115200" to guest kernel line?
+A: # yum install libguestfs libguestfs-tools
+   # guestfish -a /path/to/guest.img
+	 ><fs> run
+	 ><fs> mount /dev/sda1 /
+	 ><fs> vi /grub/grub.conf
+	 ><fs> quit
