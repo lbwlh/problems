@@ -1,0 +1,24 @@
+Tip for vim users,
+(all you gui ppl hush!)
+
+* Install cscope
+
+* Stick this in your ~/.bashrc:
+alias pyscopeupd='find "$PWD/" -name "*.py" -o -iname "*.cfg" > \
+     cscope.files && cscope -bv -i cscope.files -f cscope.out'
+
+* Download this into your ~/.vimrc:
+http://cscope.sourceforge.net/cscope_maps.vim
+
+* After updating your local repo. branch, run the 'pyscopeupd' alias to
+build/update cscope databases.
+
+* Edit some python as normal with vim.
+
+* Found a variable/function call you forgot about?  Stick your cursor on
+it, type ctrl+[space] then 's'.
+
+* Pick a selection from the list, and it'll open the reference in a vim
+window.  (ctrl-w + w to switch windows, ctrl-w + c to close window).
+
+More: http://cscope.sourceforge.net/cscope_vim_tutorial.html
